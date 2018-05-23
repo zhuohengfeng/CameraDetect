@@ -1,0 +1,37 @@
+apply plugin: 'com.android.application'
+
+android {
+    compileSdkVersion 26
+    buildToolsVersion "27.0.2"
+    defaultConfig {
+        applicationId "com.ryan.cameradetect"
+        minSdkVersion 18
+        targetSdkVersion 26
+        versionCode 1
+        versionName "1.0"
+        testInstrumentationRunner "android.support.test.runner.AndroidJUnitRunner"
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    repositories {
+        flatDir {
+            dirs 'libs'
+        }
+    }
+}
+
+dependencies {
+    implementation fileTree(dir: 'libs', include: ['*.jar'])
+    implementation 'com.android.support.constraint:constraint-layout:1.1.0'
+    compile(name: 'openCVLibrary', ext: 'aar')
+    compile(name: 'libuvccamera', ext: 'aar')
+    compile(name: 'usbCameraCommon', ext: 'aar')
+    compile("com.serenegiant:common:1.5.20") {
+        exclude module: 'support-v4'
+    }
+}
