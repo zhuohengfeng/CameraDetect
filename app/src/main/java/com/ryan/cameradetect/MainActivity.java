@@ -26,6 +26,15 @@ import com.serenegiant.usb.UVCCamera;
 import com.serenegiant.usbcameracommon.UVCCameraHandler;
 import com.serenegiant.widget.CameraViewInterface;
 
+import org.opencv.android.BaseLoaderCallback;
+import org.opencv.android.LoaderCallbackInterface;
+import org.opencv.android.OpenCVLoader;
+import org.opencv.android.Utils;
+import org.opencv.core.Mat;
+import org.opencv.core.Point;
+import org.opencv.core.Scalar;
+import org.opencv.imgproc.Imgproc;
+
 import java.nio.ByteBuffer;
 
 public final class MainActivity extends BaseActivity implements CameraDialog.CameraDialogParent {
@@ -85,6 +94,24 @@ public final class MainActivity extends BaseActivity implements CameraDialog.Cam
     private ToggleButton mScalingButton;
     private ImageView mImageView;
 
+
+    private BaseLoaderCallback mLoaderCallback = new BaseLoaderCallback(this) {
+        @Override
+        public void onManagerConnected(int status) {
+            switch (status) {
+                case LoaderCallbackInterface.SUCCESS:
+                {
+                    Log.i(TAG, "OpenCV loaded successfully");
+                } break;
+                default:
+                {
+                    super.onManagerConnected(status);
+                } break;
+            }
+        }
+    };
+
+
     @Override
     protected void onCreate(final Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -120,6 +147,14 @@ public final class MainActivity extends BaseActivity implements CameraDialog.Cam
     protected void onStart() {
         super.onStart();
         if (DEBUG) Log.v(TAG, "onStart:");
+        if (!OpenCVLoader.initDebug()) {
+            Log.d(TAG, "Internal OpenCV library not found. Using OpenCV Manager for initialization");
+            OpenCVLoader.initAsync(OpenCVLoader.OPENCV_VERSION_3_0_0, this, mLoaderCallback);
+        } else {
+            Log.d(TAG, "OpenCV library found inside package. Using it!");
+            mLoaderCallback.onManagerConnected(LoaderCallbackInterface.SUCCESS);
+        }
+
         mUSBMonitor.register();
         if (mUVCCameraView != null)
             mUVCCameraView.onResume();
@@ -337,11 +372,14 @@ public final class MainActivity extends BaseActivity implements CameraDialog.Cam
         public void onFrame(final ByteBuffer frame) {
             frame.clear();
             synchronized (bitmap) {
-                bitmap.copyPixelsFromBuffer(frame);
-                /*
                 srcbitmap.copyPixelsFromBuffer(frame);
                 Log.d("zhf_Hough","onFrame===>getWidth="+bitmap.getWidth()+", getHeight="+srcbitmap.getHeight());
+                Mat src = new Mat();
+                Utils.bitmapToMat(srcbitmap,src);
+                Imgproc.rectangle(src, new Point(100, 100), new Point(200, 300), new Scalar(255, 0, 255), 2);
 
+
+                /*
                 int frameW = srcbitmap.getWidth();
                 int frameH = srcbitmap.getHeight();
                 int maxR = Math.min(frameH, frameW);
@@ -424,9 +462,9 @@ public final class MainActivity extends BaseActivity implements CameraDialog.Cam
 
                     }
                 }
+                */
 
                 Utils.matToBitmap(src,bitmap);
-                */
                 //=======================================
             }
             mImageView.post(mUpdateImageTask);
