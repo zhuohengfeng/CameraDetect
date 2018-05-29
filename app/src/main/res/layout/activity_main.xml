@@ -31,17 +31,16 @@
 	tools:context="com.ryan.cameradetect.MainActivity"
 	tools:ignore="MergeRootFrame">
 
+	<com.serenegiant.widget.UVCCameraTextureView
+		android:id="@+id/camera_view"
+		android:layout_width="20dp"
+		android:layout_height="16dp"
+		android:layout_centerInParent="true"/>
+
 	<ImageView
 		android:id="@+id/preview_image"
 		android:layout_width="match_parent"
 		android:layout_height="match_parent"/>
-
-	<com.serenegiant.widget.UVCCameraTextureView
-		android:id="@+id/camera_view"
-		android:layout_width="160dp"
-		android:layout_height="128dp"
-		android:layout_alignRight="@+id/preview_image"
-		android:layout_alignTop="@+id/preview_image"/>
 
 	<!--<ImageView-->
 		<!--android:id="@+id/frame_image"-->
@@ -85,70 +84,21 @@
 		android:scaleType="centerCrop"
 		android:src="@android:drawable/ic_menu_camera"/>
 
+	<TextView
+		android:visibility="invisible"
+		android:id="@+id/info_text"
+		android:textColor="@color/GREEN"
+		android:layout_width="wrap_content"
+		android:layout_height="wrap_content"
+		android:layout_alignTop="@id/preview_image"
+		android:layout_centerHorizontal="true"/>
 
+	<TextView
+		android:visibility="invisible"
+		android:id="@+id/warn_text"
+		android:textColor="@color/RED"
+		android:layout_width="wrap_content"
+		android:layout_height="wrap_content"
+		android:layout_centerInParent="true"/>
 
-
-
-
-
-
-
-
-	<!--<RelativeLayout-->
-		<!--android:id="@+id/tools_layout"-->
-		<!--android:layout_width="match_parent"-->
-		<!--android:layout_height="wrap_content"-->
-		<!--android:layout_alignLeft="@id/camera_view"-->
-		<!--android:layout_alignRight="@id/camera_view"-->
-		<!--android:layout_alignTop="@id/camera_view">-->
-
-		<!--<Button-->
-			<!--android:id="@+id/brightness_button"-->
-			<!--android:layout_width="wrap_content"-->
-			<!--android:layout_height="wrap_content"-->
-			<!--android:layout_alignParentLeft="true"-->
-			<!--android:layout_centerVertical="true"-->
-			<!--android:layout_marginLeft="@dimen/horizontal_margin_half"-->
-			<!--android:layout_marginTop="@dimen/vertical_margin"-->
-			<!--android:text="brightness"/>-->
-
-		<!--<Button-->
-			<!--android:id="@+id/contrast_button"-->
-			<!--android:layout_width="wrap_content"-->
-			<!--android:layout_height="wrap_content"-->
-			<!--android:layout_centerVertical="true"-->
-			<!--android:layout_marginLeft="@dimen/horizontal_margin_half"-->
-			<!--android:layout_marginTop="@dimen/vertical_margin"-->
-			<!--android:layout_toRightOf="@+id/brightness_button"-->
-			<!--android:text="contrast"/>-->
-
-	<!--</RelativeLayout>-->
-
-	<!--<RelativeLayout-->
-		<!--android:id="@+id/value_layout"-->
-		<!--android:layout_width="match_parent"-->
-		<!--android:layout_height="wrap_content"-->
-		<!--android:layout_centerInParent="true"-->
-		<!--android:layout_alignLeft="@id/camera_view"-->
-		<!--android:layout_alignRight="@id/camera_view"-->
-		<!--android:background="#22ffffff"-->
-		<!--android:visibility="invisible">-->
-
-		<!--<ImageButton-->
-			<!--android:id="@+id/reset_button"-->
-			<!--android:layout_width="@dimen/sz_icon_camera_ctrl"-->
-			<!--android:layout_height="@dimen/sz_icon_camera_ctrl"-->
-			<!--android:background="@null"-->
-			<!--android:scaleType="fitXY"-->
-			<!--android:src="@mipmap/ic_launcher"/>-->
-
-		<!--<SeekBar-->
-			<!--android:id="@+id/setting_seekbar"-->
-			<!--android:layout_width="match_parent"-->
-			<!--android:layout_height="wrap_content"-->
-			<!--android:layout_centerInParent="true"-->
-			<!--android:layout_toRightOf="@+id/reset_button"-->
-			<!--android:max="100"-->
-			<!--android:progress="50"/>-->
-	<!--</RelativeLayout>-->
 </RelativeLayout>

@@ -13,6 +13,7 @@ import android.view.WindowManager;
 import android.widget.CompoundButton;
 import android.widget.ImageButton;
 import android.widget.ImageView;
+import android.widget.TextView;
 import android.widget.Toast;
 import android.widget.ToggleButton;
 
@@ -31,11 +32,15 @@ import org.opencv.android.LoaderCallbackInterface;
 import org.opencv.android.OpenCVLoader;
 import org.opencv.android.Utils;
 import org.opencv.core.Mat;
-import org.opencv.core.Point;
-import org.opencv.core.Scalar;
+import org.opencv.core.MatOfPoint;
+import org.opencv.core.MatOfRect;
+import org.opencv.core.Rect;
+import org.opencv.core.Size;
 import org.opencv.imgproc.Imgproc;
 
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.List;
 
 public final class MainActivity extends BaseActivity implements CameraDialog.CameraDialogParent {
     private static final boolean DEBUG = true;	// TODO set false on release
@@ -93,7 +98,12 @@ public final class MainActivity extends BaseActivity implements CameraDialog.Cam
     private ImageButton mCaptureButton;
     private ToggleButton mScalingButton;
     private ImageView mImageView;
-
+    private TextView mInfoText;
+    private TextView mWarnText;
+    private static final int CAPTURE_WIDTH = 640;
+    private static final int CAPTURE_HEIGHT = 480;
+    private boolean isScaling = false;
+    private boolean isInCapturing = false;
 
     private BaseLoaderCallback mLoaderCallback = new BaseLoaderCallback(this) {
         @Override
@@ -125,7 +135,7 @@ public final class MainActivity extends BaseActivity implements CameraDialog.Cam
         setContentView(R.layout.activity_main);
         mCameraButton = (ToggleButton)findViewById(R.id.camera_button);
         mCameraButton.setOnCheckedChangeListener(mOnCheckedChangeListener);
-        // zhuohf++
+
         mScalingButton = (ToggleButton)findViewById(R.id.scaling_button);
         mScalingButton.setOnCheckedChangeListener(mOnCheckedChangeListener);
         mImageView = (ImageView)findViewById(R.id.preview_image);
@@ -137,6 +147,9 @@ public final class MainActivity extends BaseActivity implements CameraDialog.Cam
 //		view.setOnLongClickListener(mOnLongClickListener); //zhuohf--
         mUVCCameraView = (CameraViewInterface)view;
         mUVCCameraView.setAspectRatio(PREVIEW_WIDTH / (float)PREVIEW_HEIGHT);
+
+        mInfoText = (TextView) findViewById(R.id.info_text);
+        mWarnText = (TextView)findViewById(R.id.warn_text);
 
         mUSBMonitor = new USBMonitor(this, mOnDeviceConnectListener);
         mCameraHandler = UVCCameraHandler.createHandler(this, mUVCCameraView,
@@ -186,6 +199,9 @@ public final class MainActivity extends BaseActivity implements CameraDialog.Cam
 
         mScalingButton = null;
         mCaptureButton = null;
+
+        mInfoText = null;
+        mWarnText = null;
         super.onDestroy();
     }
 
@@ -197,9 +213,15 @@ public final class MainActivity extends BaseActivity implements CameraDialog.Cam
         public void onClick(final View view) {
             switch (view.getId()) {
                 case R.id.capture_button:
-                    if (mCameraHandler.isOpened()) {
+                    if (mCameraHandler.isOpened() && !isInCapturing) {
                         if (checkPermissionWriteExternalStorage() /*&& checkPermissionAudio()*/) {
-                            mCameraHandler.captureStill();
+                            synchronized (bitmap){
+                                isInCapturing = true;
+                                // 传入图片，并保存
+                                // path如果不指定，就默认保存在/sdcard/DCIM/USBCameraTest目录下
+                                mCameraHandler.captureStill(bitmap, "");
+                                isInCapturing = false;
+                            }
                         }
                     }
                     break;
@@ -207,7 +229,6 @@ public final class MainActivity extends BaseActivity implements CameraDialog.Cam
         }
     };
 
-    private boolean isScaling = false;
     private final CompoundButton.OnCheckedChangeListener mOnCheckedChangeListener
             = new CompoundButton.OnCheckedChangeListener() {
         @Override
@@ -225,12 +246,13 @@ public final class MainActivity extends BaseActivity implements CameraDialog.Cam
                     if (isChecked) {
                         // 打开了放大
                         isScaling = true;
-                        Toast.makeText(MainActivity.this, "当前处于放大模式", Toast.LENGTH_SHORT).show();
+                        //Toast.makeText(MainActivity.this, "当前处于放大模式", Toast.LENGTH_SHORT).show();
                     } else {
                         // 关闭放大
                         isScaling = false;
-                        Toast.makeText(MainActivity.this, "当前处于普通模式", Toast.LENGTH_SHORT).show();
+                        //Toast.makeText(MainActivity.this, "当前处于普通模式", Toast.LENGTH_SHORT).show();
                     }
+                    updateItems();
                     break;
             }
         }
@@ -358,111 +380,129 @@ public final class MainActivity extends BaseActivity implements CameraDialog.Cam
             if (isFinishing()) return;
             final int visible_active = isActive() ? View.VISIBLE : View.INVISIBLE;
             mScalingButton.setVisibility(visible_active);
+            mInfoText.setVisibility(visible_active);
+            mWarnText.setVisibility(visible_active);
+            mImageView.setVisibility(visible_active);
+            if(isActive()){
+                mInfoText.setText("预览:"+PREVIEW_WIDTH+"x"+PREVIEW_HEIGHT+",   "
+                        +"拍照:"+CAPTURE_WIDTH+"x"+CAPTURE_HEIGHT+",   "
+                        +(isScaling?"放大":"普通"));
+            }
+            else{
+                mInfoText.setText("");
+            }
         }
     };
 
     //================================================================================
     // if you need frame data as byte array on Java side, you can use this callback method with UVCCamera#setFrameCallback
     // if you need to create Bitmap in IFrameCallback, please refer following snippet.
-    final Bitmap bitmap = Bitmap.createBitmap(PREVIEW_WIDTH, PREVIEW_HEIGHT, Bitmap.Config.RGB_565);
-    final Bitmap srcbitmap = Bitmap.createBitmap(PREVIEW_WIDTH, PREVIEW_HEIGHT, Bitmap.Config.RGB_565);
+    private final Bitmap bitmap = Bitmap.createBitmap(640, 480, Bitmap.Config.RGB_565);
+    private final Bitmap srcBitmap = Bitmap.createBitmap(PREVIEW_WIDTH, PREVIEW_HEIGHT, Bitmap.Config.RGB_565);
+    private String WarnText;
 
     private final IFrameCallback mIFrameCallback = new IFrameCallback() {
         @Override
         public void onFrame(final ByteBuffer frame) {
             frame.clear();
+            if(!isActive() || isInCapturing){
+                return;
+            }
             synchronized (bitmap) {
-                srcbitmap.copyPixelsFromBuffer(frame);
-                Log.d("zhf_Hough","onFrame===>getWidth="+bitmap.getWidth()+", getHeight="+srcbitmap.getHeight());
+                srcBitmap.copyPixelsFromBuffer(frame);
                 Mat src = new Mat();
-                Utils.bitmapToMat(srcbitmap,src);
-                Imgproc.rectangle(src, new Point(100, 100), new Point(200, 300), new Scalar(255, 0, 255), 2);
+                Utils.bitmapToMat(srcBitmap,src);
 
+                WarnText = "";
+                if (!isScaling){
+                    // Todo 需要考虑通用情况
+                    int cutHeight = PREVIEW_WIDTH * CAPTURE_HEIGHT / CAPTURE_WIDTH;
+                    Rect cutRect = new Rect(0, (PREVIEW_HEIGHT-cutHeight)/2, PREVIEW_WIDTH, cutHeight);
+                    Imgproc.resize(src.submat(cutRect), src, new Size(CAPTURE_WIDTH, CAPTURE_HEIGHT));
+                }
+                else{
+                    int maxR = Math.min(PREVIEW_WIDTH, PREVIEW_HEIGHT);
+                    // 1280x1024 --- 245*245
+                    // 640x480 - 120 x 120
+                    int minArea = (int) Math.pow(maxR/8, 2);
+                    int maxArea = (int) Math.pow(maxR/2, 2);
+                    Mat gray=new Mat();
+                    Mat threshold=new Mat();
+                    Imgproc.cvtColor(src,gray,Imgproc.COLOR_BGR2GRAY);
+                    Imgproc.medianBlur(gray, threshold,15);
+                    Imgproc.adaptiveThreshold(threshold,threshold,255,Imgproc.ADAPTIVE_THRESH_MEAN_C , Imgproc.THRESH_BINARY,255,2 );
+                    Imgproc.medianBlur(threshold, threshold,5);
 
-                /*
-                int frameW = srcbitmap.getWidth();
-                int frameH = srcbitmap.getHeight();
-                int maxR = Math.min(frameH, frameW);
-                // 1280x1024 --- 245*245
-                // 640x480 - 120 x 120
-                int minArea = (int) Math.pow(maxR/8, 2);
-                int maxArea = (int) Math.pow(maxR/2, 2);
+                    List<MatOfPoint> contours=new ArrayList<MatOfPoint>();
+                    Imgproc.findContours(threshold, contours, new Mat(),Imgproc.RETR_LIST, Imgproc.CHAIN_APPROX_NONE);
 
-                //Mat dest=new Mat();
-                Mat bigSrc = new Mat();
-                Utils.bitmapToMat(srcbitmap,bigSrc);
-                Mat src=new Mat();
-                Imgproc.resize(bigSrc, src, new Size(frameW/2, frameH/2));
+                    boolean isDetectCircle = false;
+                    Rect detectCircle = null;
+                    for(int i=0;i<contours.size();i++){
+                        MatOfPoint contour = contours.get(i);
+                        double area = Imgproc.contourArea(contour);
+                        //Log.d("zhf_Hough","i: "+ i+", area="+area);
+                        if(area > minArea && area < maxArea) {
+                            Rect rect = Imgproc.boundingRect(contour);
+                            int x = rect.x;
+                            int y = rect.y;
+                            int width = rect.width;
+                            int height = rect.height;
+                            //Log.d("zhf_Hough", "x=" + x + ", y=" + y + ", w=" + width + ", h=" + height);
+                            if(Math.abs(width - height) < 20){
+                            	int circle_x = x+width/2;
+    							int circle_y = y+height/2;
+    							int start_x = circle_x - 320 > 0 ? circle_x - 320 : 0;
+    							int start_y = circle_y - 240 > 0 ? circle_y - 240 : 0;
+                                isDetectCircle = true;
+                                detectCircle = new Rect(start_x, start_y, 640, 480);
+                                break;
+                            }
+                            else{
+                                // 如果找到的区域是长方形，则在用更精确的方式来查找
+                                Mat copyImg = gray.submat(rect);
+                                int minCopyImgR = Math.min(copyImg.width(), copyImg.height());
+                                // 中值滤波
+                                Mat copyImgThreshold =new Mat();
+                                Imgproc.medianBlur(copyImg, copyImgThreshold,9);
+                                MatOfRect circles = new MatOfRect();
+                                Imgproc.HoughCircles(copyImgThreshold, circles, Imgproc.HOUGH_GRADIENT,
+                                        1.7, //1.5
+                                        minCopyImgR, //100
+                                        100, //130
+                                        52, //38
+                                        minCopyImgR/4, //0
+                                        minCopyImgR); //0
+                                //Log.d("zhf_Hough","circles.cols()="+circles.cols());
 
-                Mat gray=new Mat();
-                Mat threshold=new Mat();
-                // 计算灰度
-                Imgproc.cvtColor(src,gray,Imgproc.COLOR_BGR2GRAY);
-                // 中值滤波
-                Imgproc.medianBlur(gray, threshold,15);
-                // 二值化-----------自适应阈值要试试
-                //Imgproc.threshold(gray, threshold, 140, 255, Imgproc.THRESH_BINARY); //127
-                Imgproc.adaptiveThreshold(threshold,threshold,255,Imgproc.ADAPTIVE_THRESH_MEAN_C , Imgproc.THRESH_BINARY,255,2 );
-                // 再做一次中值滤波
-                Imgproc.medianBlur(threshold, threshold,5);
-
-                List<MatOfPoint> contours=new ArrayList<MatOfPoint>();
-                Imgproc.findContours(threshold, contours, new Mat(),Imgproc.RETR_LIST, Imgproc.CHAIN_APPROX_NONE);
-
-                for(int i=0;i<contours.size();i++){
-                    MatOfPoint contour = contours.get(i);
-                    double area = Imgproc.contourArea(contour);
-                    //Log.d("zhf_Hough","i: "+ i+", area="+area);
-                    if(area > minArea && area < maxArea){ // 640分辨率算出来的面积10600
-                        Rect rect = Imgproc.boundingRect(contour);
-                        int x = rect.x;
-                        int y = rect.y;
-                        int width = rect.width;
-                        int height = rect.height;
-                        Log.d("zhf_Hough","x="+x +", y="+y+", w="+width+", h="+height);
-                        if(Math.abs(width - height) < 6){
-//                        	int circle_x = x+width/2;
-//							int circle_y = y+height/2;
-//							int start_x = circle_x - 320 > 0 ? circle_x - 320 : 0;
-//							int start_y = circle_y - 240 > 0 ? circle_y - 240 : 0;
-//                        	Rect cutRect = new Rect(start_x, start_y, 640, 480);
-//							dest = src.submat(cutRect);
-
-                            Imgproc.rectangle(src, new Point(x, y), new Point(x+width, y+height), new Scalar(255, 0, 255), 2);
-                        }
-                        else{
-                            // 如果找到的区域是长方形，则在用更精确的方式来查找
-                            Mat copyImg = gray.submat(rect);
-                            int minCopyImgR = Math.min(copyImg.width(), copyImg.height());
-                            // 中值滤波
-                            Mat copyImgThreshold =new Mat();
-                            Imgproc.medianBlur(copyImg, copyImgThreshold,9);
-                            MatOfRect circles = new MatOfRect();
-                            Imgproc.HoughCircles(copyImgThreshold, circles, Imgproc.HOUGH_GRADIENT,
-                                    1.7, //1.5
-                                    minCopyImgR, //100
-                                    100, //130
-                                    52, //38
-                                    minCopyImgR/4, //0
-                                    minCopyImgR); //0
-                            Log.d("zhf_Hough","circles.cols()="+circles.cols());
-                            for(int j=0; j<circles.cols();j++){
-                                for(int k =0;k<circles.rows();k++){
-                                    double[] c=circles.get(j,k);
-                                    Log.d("TAG","c: "+ Arrays.toString(c));
-                                    Point center=new Point(c[0]+x,c[1]+y);
-                                    int x_c = (int)c[0];
-                                    int y_c = (int)c[1];
-                                    int r = (int) c[2];
-                                    Log.d("zhf_Hough_Circle","x_c="+x_c +", y_c="+y_c+", r="+r);
-                                    Imgproc.rectangle(src, new Point(x_c-r+x, y_c-r+y), new Point(x_c+r+x, y_c+r+y), new Scalar(0, 255, 0), 2);
+                                if(circles.cols() != 1){
+                                    break;
+                                }
+                                for(int j=0; j<circles.cols();j++){
+                                    for(int k =0;k<circles.rows();k++){
+                                        double[] c=circles.get(j,k);
+                                        //Log.d("TAG","c: "+ Arrays.toString(c));
+                                        int x_c = (int)c[0];
+                                        int y_c = (int)c[1];
+                                        int r = (int) c[2];
+                                        //Log.d("zhf_Hough_Circle","x_c="+x_c +", y_c="+y_c+", r="+r);
+                                        isDetectCircle = true;
+                                        detectCircle = new Rect(x_c+x-CAPTURE_WIDTH/2, y_c+y-CAPTURE_HEIGHT/2, CAPTURE_WIDTH, CAPTURE_HEIGHT);
+                                    }
                                 }
                             }
                         }
+                    }
 
+                    if(!isDetectCircle) {
+                        WarnText = "未检测到圆，试着转动下镜头";
+                        Imgproc.resize(src, src, new Size(CAPTURE_WIDTH, CAPTURE_HEIGHT));
+                    }
+                    else{
+                        WarnText = "检测到圆, CircleRect="+detectCircle;
+                        src = src.submat(detectCircle);
                     }
                 }
-                */
 
                 Utils.matToBitmap(src,bitmap);
                 //=======================================
@@ -476,6 +516,7 @@ public final class MainActivity extends BaseActivity implements CameraDialog.Cam
         public void run() {
             synchronized (bitmap) {
                 mImageView.setImageBitmap(bitmap);
+                mWarnText.setText(WarnText);
             }
         }
     };
