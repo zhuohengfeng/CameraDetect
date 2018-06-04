@@ -84,14 +84,6 @@
 		android:scaleType="centerCrop"
 		android:src="@android:drawable/ic_menu_camera"/>
 
-	<TextView
-		android:visibility="invisible"
-		android:id="@+id/info_text"
-		android:textColor="@color/GREEN"
-		android:layout_width="wrap_content"
-		android:layout_height="wrap_content"
-		android:layout_alignTop="@id/preview_image"
-		android:layout_centerHorizontal="true"/>
 
 	<TextView
 		android:visibility="invisible"
@@ -101,4 +93,88 @@
 		android:layout_height="wrap_content"
 		android:layout_centerInParent="true"/>
 
+
+
+	<RelativeLayout
+		android:id="@+id/tools_layout"
+		android:layout_width="match_parent"
+		android:layout_height="wrap_content"
+		android:layout_alignLeft="@id/preview_image"
+		android:layout_alignRight="@id/preview_image"
+		android:layout_alignTop="@id/preview_image">
+
+		<TextView
+			android:visibility="invisible"
+			android:id="@+id/info_text"
+			android:textStyle="bold"
+			android:textColor="@color/GREEN"
+			android:layout_width="wrap_content"
+			android:layout_height="wrap_content"
+			android:layout_centerHorizontal="true"
+			android:layout_centerVertical="true"
+			android:layout_marginTop="@dimen/vertical_margin"/>
+
+		<Button
+			android:id="@+id/brightness_button"
+			android:layout_width="wrap_content"
+			android:layout_height="wrap_content"
+			android:layout_alignParentLeft="true"
+			android:layout_centerVertical="true"
+			android:layout_marginLeft="@dimen/horizontal_margin_half"
+			android:layout_marginTop="@dimen/vertical_margin"
+			android:text="brightness"/>
+
+		<Button
+			android:id="@+id/contrast_button"
+			android:layout_width="wrap_content"
+			android:layout_height="wrap_content"
+			android:layout_centerVertical="true"
+			android:layout_marginLeft="@dimen/horizontal_margin_half"
+			android:layout_marginTop="@dimen/vertical_margin"
+			android:layout_toRightOf="@+id/brightness_button"
+			android:text="contrast"/>
+
+		<Spinner
+			android:background="#d0d0d0"
+			android:id="@+id/spinner_capture_solution"
+			android:layout_width="wrap_content"
+			android:layout_height="wrap_content"
+			android:layout_alignParentRight="true"
+			android:layout_centerVertical="true"
+			android:layout_marginRight="@dimen/horizontal_margin_half"
+			android:layout_marginTop="@dimen/vertical_margin"
+			android:entries="@array/capture_solution"/>
+	</RelativeLayout>
+
+
+	<RelativeLayout
+		android:id="@+id/value_layout"
+		android:layout_width="match_parent"
+		android:layout_height="wrap_content"
+		android:layout_below="@+id/tools_layout"
+		android:layout_alignLeft="@id/preview_image"
+		android:layout_alignRight="@id/preview_image"
+		android:layout_marginTop="30dp"
+		android:background="#22ffffff"
+		android:visibility="invisible">
+
+		<ImageButton
+			android:id="@+id/reset_button"
+			android:layout_width="@dimen/sz_icon_camera_ctrl"
+			android:layout_height="@dimen/sz_icon_camera_ctrl"
+			android:background="@null"
+			android:scaleType="fitXY"
+			android:src="@mipmap/reset"/>
+
+		<SeekBar
+			android:id="@+id/setting_seekbar"
+			android:layout_marginRight="20dp"
+			android:layout_marginLeft="10dp"
+			android:layout_width="match_parent"
+			android:layout_height="wrap_content"
+			android:layout_centerInParent="true"
+			android:layout_toRightOf="@+id/reset_button"
+			android:max="100"
+			android:progress="50"/>
+	</RelativeLayout>
 </RelativeLayout>

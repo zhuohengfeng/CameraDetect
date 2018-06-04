@@ -1,18 +1,24 @@
 package com.ryan.cameradetect;
 
+import android.animation.Animator;
 import android.graphics.Bitmap;
+import android.graphics.Matrix;
 import android.graphics.SurfaceTexture;
 import android.hardware.usb.UsbDevice;
 import android.os.Bundle;
+import android.support.annotation.NonNull;
 import android.util.Log;
 import android.view.Surface;
 import android.view.View;
 import android.view.View.OnClickListener;
 import android.view.Window;
 import android.view.WindowManager;
+import android.widget.AdapterView;
 import android.widget.CompoundButton;
 import android.widget.ImageButton;
 import android.widget.ImageView;
+import android.widget.SeekBar;
+import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
 import android.widget.ToggleButton;
@@ -25,6 +31,7 @@ import com.serenegiant.usb.USBMonitor.OnDeviceConnectListener;
 import com.serenegiant.usb.USBMonitor.UsbControlBlock;
 import com.serenegiant.usb.UVCCamera;
 import com.serenegiant.usbcameracommon.UVCCameraHandler;
+import com.serenegiant.utils.ViewAnimationHelper;
 import com.serenegiant.widget.CameraViewInterface;
 
 import org.opencv.android.BaseLoaderCallback;
@@ -35,9 +42,9 @@ import org.opencv.core.Mat;
 import org.opencv.core.MatOfPoint;
 import org.opencv.core.MatOfRect;
 import org.opencv.core.Rect;
-import org.opencv.core.Size;
 import org.opencv.imgproc.Imgproc;
 
+import java.math.BigDecimal;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
@@ -46,6 +53,8 @@ public final class MainActivity extends BaseActivity implements CameraDialog.Cam
     private static final boolean DEBUG = true;	// TODO set false on release
     private static final String TAG = "MainActivity";
 
+	private final Object mSync = new Object();
+	
     /**
      * set true if you want to record movie using MediaSurfaceEncoder
      * (writing frame data into Surface camera from MediaCodec
@@ -97,13 +106,24 @@ public final class MainActivity extends BaseActivity implements CameraDialog.Cam
      */
     private ImageButton mCaptureButton;
     private ToggleButton mScalingButton;
+
+    private View mBrightnessButton, mContrastButton;
+	private View mResetButton;
+	private View mToolsLayout, mValueLayout;
+	private SeekBar mSettingSeekbar;
+
+	private Spinner mCaptureSoluionSelect;
     private ImageView mImageView;
     private TextView mInfoText;
     private TextView mWarnText;
-    private static final int CAPTURE_WIDTH = 640;
-    private static final int CAPTURE_HEIGHT = 480;
     private boolean isScaling = false;
     private boolean isInCapturing = false;
+
+    //private static final int CAPTURE_WIDTH = 640;
+    //private static final int CAPTURE_HEIGHT = 480;
+    private int[][] capture_solution = {{640,480}, {800,600},{1024,768}, {1280,1024}};
+    private int mCaptureWidth = capture_solution[0][0];
+    private int mCaptureHeight = capture_solution[0][1];
 
     private BaseLoaderCallback mLoaderCallback = new BaseLoaderCallback(this) {
         @Override
@@ -125,7 +145,7 @@ public final class MainActivity extends BaseActivity implements CameraDialog.Cam
     @Override
     protected void onCreate(final Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        if (DEBUG) Log.v(TAG, "onCreate:");
+        Log.v(TAG, "onCreate:");
 
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         requestWindowFeature(Window.FEATURE_NO_TITLE);
@@ -139,6 +159,33 @@ public final class MainActivity extends BaseActivity implements CameraDialog.Cam
         mScalingButton = (ToggleButton)findViewById(R.id.scaling_button);
         mScalingButton.setOnCheckedChangeListener(mOnCheckedChangeListener);
         mImageView = (ImageView)findViewById(R.id.preview_image);
+        mCaptureSoluionSelect = (Spinner) findViewById(R.id.spinner_capture_solution);
+        mCaptureSoluionSelect.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> adapterView, View view, int i, long l) {
+                //Toast.makeText(MainActivity.this, "select: i="+i+", l="+l+", capture_solution.length="+capture_solution.length, Toast.LENGTH_SHORT).show();
+                if (i>=capture_solution.length){
+                    Toast.makeText(MainActivity.this, "分辨率选择错误", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                mCaptureWidth = capture_solution[i][0];
+                mCaptureHeight = capture_solution[i][1];
+                synchronized (bitmap){
+                    bitmap = Bitmap.createBitmap(mCaptureWidth, mCaptureHeight, Bitmap.Config.RGB_565);
+                }
+                updateItems();
+            }
+
+            @Override
+            public void onNothingSelected(AdapterView<?> adapterView) {
+
+            }
+        });
+
+        // 初始化图片
+        mCaptureWidth = capture_solution[0][0];
+        mCaptureHeight = capture_solution[0][1];
+        bitmap = Bitmap.createBitmap(mCaptureWidth, mCaptureHeight, Bitmap.Config.RGB_565);
 
         mCaptureButton = (ImageButton)findViewById(R.id.capture_button);
         mCaptureButton.setOnClickListener(mOnClickListener);
@@ -151,15 +198,31 @@ public final class MainActivity extends BaseActivity implements CameraDialog.Cam
         mInfoText = (TextView) findViewById(R.id.info_text);
         mWarnText = (TextView)findViewById(R.id.warn_text);
 
-        mUSBMonitor = new USBMonitor(this, mOnDeviceConnectListener);
-        mCameraHandler = UVCCameraHandler.createHandler(this, mUVCCameraView,
-                USE_SURFACE_ENCODER ? 0 : 1, PREVIEW_WIDTH, PREVIEW_HEIGHT, PREVIEW_MODE);
+        mBrightnessButton = findViewById(R.id.brightness_button);
+		mBrightnessButton.setOnClickListener(mOnClickListener);
+		mContrastButton = findViewById(R.id.contrast_button);
+		mContrastButton.setOnClickListener(mOnClickListener);
+		mResetButton = findViewById(R.id.reset_button);
+		mResetButton.setOnClickListener(mOnClickListener);
+		mSettingSeekbar = (SeekBar)findViewById(R.id.setting_seekbar);
+		mSettingSeekbar.setOnSeekBarChangeListener(mOnSeekBarChangeListener);
+
+		mToolsLayout = findViewById(R.id.tools_layout);
+		mToolsLayout.setVisibility(View.INVISIBLE);
+		mValueLayout = findViewById(R.id.value_layout);
+		mValueLayout.setVisibility(View.INVISIBLE);
+
+		synchronized (mSync) {
+	        mUSBMonitor = new USBMonitor(this, mOnDeviceConnectListener);
+	        mCameraHandler = UVCCameraHandler.createHandler(this, mUVCCameraView,
+	                USE_SURFACE_ENCODER ? 0 : 1, PREVIEW_WIDTH, PREVIEW_HEIGHT, PREVIEW_MODE);
+		}
     }
 
     @Override
     protected void onStart() {
         super.onStart();
-        if (DEBUG) Log.v(TAG, "onStart:");
+        Log.v(TAG, "onStart:");
         if (!OpenCVLoader.initDebug()) {
             Log.d(TAG, "Internal OpenCV library not found. Using OpenCV Manager for initialization");
             OpenCVLoader.initAsync(OpenCVLoader.OPENCV_VERSION_3_0_0, this, mLoaderCallback);
@@ -168,40 +231,44 @@ public final class MainActivity extends BaseActivity implements CameraDialog.Cam
             mLoaderCallback.onManagerConnected(LoaderCallbackInterface.SUCCESS);
         }
 
-        mUSBMonitor.register();
-        if (mUVCCameraView != null)
-            mUVCCameraView.onResume();
+		synchronized (mSync) {
+        	mUSBMonitor.register();
+		}
+		if (mUVCCameraView != null) {
+  			mUVCCameraView.onResume();
+		}	
     }
 
     @Override
     protected void onStop() {
-        if (DEBUG) Log.v(TAG, "onStop:");
-        mCameraHandler.close();
-        if (mUVCCameraView != null)
-            mUVCCameraView.onPause();
+        Log.v(TAG, "onStop:");
+        synchronized (mSync) {
+//			mCameraHandler.stopRecording();
+//			mCameraHandler.stopPreview();
+    		mCameraHandler.close();	// #close include #stopRecording and #stopPreview
+			mUSBMonitor.unregister();
+        }
+		 if (mUVCCameraView != null)
+			mUVCCameraView.onPause();
+		
         setCameraButton(false);
         super.onStop();
     }
 
     @Override
     public void onDestroy() {
-        if (DEBUG) Log.v(TAG, "onDestroy:");
-        if (mCameraHandler != null) {
-            mCameraHandler.release();
-            mCameraHandler = null;
+        Log.v(TAG, "onDestroy:");
+        synchronized (mSync) {
+            if (mCameraHandler != null) {
+                mCameraHandler.setPreviewCallback(null); //zhf
+                mCameraHandler.release();
+                mCameraHandler = null;
+            }
+            if (mUSBMonitor != null) {
+                mUSBMonitor.destroy();
+                mUSBMonitor = null;
+            }
         }
-        if (mUSBMonitor != null) {
-            mUSBMonitor.destroy();
-            mUSBMonitor = null;
-        }
-        mUVCCameraView = null;
-        mCameraButton = null;
-
-        mScalingButton = null;
-        mCaptureButton = null;
-
-        mInfoText = null;
-        mWarnText = null;
         super.onDestroy();
     }
 
@@ -213,17 +280,28 @@ public final class MainActivity extends BaseActivity implements CameraDialog.Cam
         public void onClick(final View view) {
             switch (view.getId()) {
                 case R.id.capture_button:
-                    if (mCameraHandler.isOpened() && !isInCapturing) {
-                        if (checkPermissionWriteExternalStorage() /*&& checkPermissionAudio()*/) {
-                            synchronized (bitmap){
-                                isInCapturing = true;
-                                // 传入图片，并保存
-                                // path如果不指定，就默认保存在/sdcard/DCIM/USBCameraTest目录下
-                                mCameraHandler.captureStill(bitmap, "");
-                                isInCapturing = false;
-                            }
-                        }
-                    }
+					synchronized (mSync) {
+	                    if (mCameraHandler.isOpened() && !isInCapturing) {
+	                        if (checkPermissionWriteExternalStorage() /*&& checkPermissionAudio()*/) {
+	                            synchronized (bitmap){
+	                                isInCapturing = true;
+	                                // 传入图片，并保存
+	                                // path如果不指定，就默认保存在/sdcard/DCIM/USBCameraTest目录下
+	                                mCameraHandler.captureStill(bitmap, "");
+	                                isInCapturing = false;
+	                            }
+	                        }
+	                    }
+					}
+                    break;
+                case R.id.brightness_button:
+                    showSettings(UVCCamera.PU_BRIGHTNESS);
+                    break;
+                case R.id.contrast_button:
+                    showSettings(UVCCamera.PU_CONTRAST);
+                    break;
+                case R.id.reset_button:
+                    resetSettings();
                     break;
             }
         }
@@ -235,11 +313,13 @@ public final class MainActivity extends BaseActivity implements CameraDialog.Cam
         public void onCheckedChanged(final CompoundButton compoundButton, final boolean isChecked) {
             switch (compoundButton.getId()) {
                 case R.id.camera_button:
-                    if (isChecked && !mCameraHandler.isOpened()) {
-                        CameraDialog.showDialog(MainActivity.this);
-                    } else {
-                        mCameraHandler.close();
-                        setCameraButton(false);
+                    synchronized (mSync) {
+					if (isChecked && (mCameraHandler != null) && !mCameraHandler.isOpened()) {
+                            CameraDialog.showDialog(MainActivity.this);
+                        } else {
+                            mCameraHandler.close();
+                            setCameraButton(false);
+                        }
                     }
                     break;
                 case R.id.scaling_button:
@@ -279,11 +359,13 @@ public final class MainActivity extends BaseActivity implements CameraDialog.Cam
     }
 
     private void startPreview() {
-        final SurfaceTexture st = mUVCCameraView.getSurfaceTexture();
-        Log.d("zhf_Hough", "MainActivity: startPreview  handleSetPrevie  mIFrameCallback="+mIFrameCallback);
-        mCameraHandler.setPreviewCallback(mIFrameCallback);
-        mCameraHandler.startPreview(new Surface(st));
-
+		synchronized (mSync) {
+			if (mCameraHandler != null) {
+                final SurfaceTexture st = mUVCCameraView.getSurfaceTexture();
+				mCameraHandler.setPreviewCallback(mIFrameCallback);
+                mCameraHandler.startPreview(new Surface(st));
+			}
+		}
         runOnUiThread(new Runnable() {
             @Override
             public void run() {
@@ -302,24 +384,36 @@ public final class MainActivity extends BaseActivity implements CameraDialog.Cam
         @Override
         public void onConnect(final UsbDevice device, final UsbControlBlock ctrlBlock, final boolean createNew) {
             if (DEBUG) Log.v(TAG, "onConnect:");
-            mCameraHandler.open(ctrlBlock);
-            startPreview();
-            updateItems();
+            synchronized (mSync) {
+                if (mCameraHandler != null) {
+	                mCameraHandler.open(ctrlBlock);
+	                startPreview();
+	                updateItems();
+				}
+            }
         }
 
         @Override
         public void onDisconnect(final UsbDevice device, final UsbControlBlock ctrlBlock) {
             if (DEBUG) Log.v(TAG, "onDisconnect:");
-            if (mCameraHandler != null) {
-                queueEvent(new Runnable() {
-                    @Override
-                    public void run() {
-                        mCameraHandler.close();
-                    }
-                }, 0);
-                setCameraButton(false);
-                updateItems();
+            synchronized (mSync) {
+                if (mCameraHandler != null) {
+                    queueEvent(new Runnable() {
+                        @Override
+                        public void run() {
+                            try{
+                                // maybe throw java.lang.IllegalStateException: already released
+                                mCameraHandler.setPreviewCallback(null); //zhf
+                            }
+                            catch(Exception e){
+                                e.printStackTrace();
+                            }
+                            mCameraHandler.close();
+                        }
+                    }, 0);
+				}
             }
+			setCameraButton(false);
         }
         @Override
         public void onDettach(final UsbDevice device) {
@@ -338,8 +432,10 @@ public final class MainActivity extends BaseActivity implements CameraDialog.Cam
      */
     @Override
     public USBMonitor getUSBMonitor() {
-        return mUSBMonitor;
-    }
+		synchronized (mSync) {
+			return mUSBMonitor;
+		}
+	}
 
     @Override
     public void onDialogResult(boolean canceled) {
@@ -379,13 +475,20 @@ public final class MainActivity extends BaseActivity implements CameraDialog.Cam
         public void run() {
             if (isFinishing()) return;
             final int visible_active = isActive() ? View.VISIBLE : View.INVISIBLE;
+            mToolsLayout.setVisibility(visible_active);
+            mBrightnessButton.setVisibility(
+                    checkSupportFlag(UVCCamera.PU_BRIGHTNESS)
+                            ? visible_active : View.INVISIBLE);
+            mContrastButton.setVisibility(
+                    checkSupportFlag(UVCCamera.PU_CONTRAST)
+                            ? visible_active : View.INVISIBLE);
+
             mScalingButton.setVisibility(visible_active);
             mInfoText.setVisibility(visible_active);
             mWarnText.setVisibility(visible_active);
             mImageView.setVisibility(visible_active);
             if(isActive()){
-                mInfoText.setText("预览:"+PREVIEW_WIDTH+"x"+PREVIEW_HEIGHT+",   "
-                        +"拍照:"+CAPTURE_WIDTH+"x"+CAPTURE_HEIGHT+",   "
+                mInfoText.setText("当前拍照:"+mCaptureWidth+"x"+mCaptureHeight+",   "
                         +(isScaling?"放大":"普通"));
             }
             else{
@@ -394,10 +497,184 @@ public final class MainActivity extends BaseActivity implements CameraDialog.Cam
         }
     };
 
+
+    private int mSettingMode = -1;
+    /**
+     * 設定画面を表示
+     * @param mode
+     */
+    private final void showSettings(final int mode) {
+        if (DEBUG) Log.v(TAG, String.format("showSettings:%08x", mode));
+        hideSetting(false);
+        if (isActive()) {
+            switch (mode) {
+                case UVCCamera.PU_BRIGHTNESS:
+                case UVCCamera.PU_CONTRAST:
+                    mSettingMode = mode;
+                    mSettingSeekbar.setProgress(getValue(mode));
+                    ViewAnimationHelper.fadeIn(mValueLayout, -1, 0, mViewAnimationListener);
+                    break;
+            }
+        }
+    }
+
+    private void resetSettings() {
+        if (isActive()) {
+            switch (mSettingMode) {
+                case UVCCamera.PU_BRIGHTNESS:
+                case UVCCamera.PU_CONTRAST:
+                    mSettingSeekbar.setProgress(resetValue(mSettingMode));
+                    break;
+            }
+        }
+        mSettingMode = -1;
+        ViewAnimationHelper.fadeOut(mValueLayout, -1, 0, mViewAnimationListener);
+    }
+
+    /**
+     * 設定画面を非表示にする
+     * @param fadeOut trueならばフェードアウトさせる, falseなら即座に非表示にする
+     */
+    protected final void hideSetting(final boolean fadeOut) {
+        removeFromUiThread(mSettingHideTask);
+        if (fadeOut) {
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    ViewAnimationHelper.fadeOut(mValueLayout, -1, 0, mViewAnimationListener);
+                }
+            }, 0);
+        } else {
+            try {
+                mValueLayout.setVisibility(View.GONE);
+            } catch (final Exception e) {
+                // ignore
+            }
+            mSettingMode = -1;
+        }
+    }
+
+    protected final Runnable mSettingHideTask = new Runnable() {
+        @Override
+        public void run() {
+            hideSetting(true);
+        }
+    };
+
+    /**
+     * 設定値変更用のシークバーのコールバックリスナー
+     */
+    private final SeekBar.OnSeekBarChangeListener mOnSeekBarChangeListener = new SeekBar.OnSeekBarChangeListener() {
+        @Override
+        public void onProgressChanged(final SeekBar seekBar, final int progress, final boolean fromUser) {
+            // 設定が変更された時はシークバーの非表示までの時間を延長する
+            if (fromUser) {
+                runOnUiThread(mSettingHideTask, SETTINGS_HIDE_DELAY_MS);
+            }
+        }
+
+        @Override
+        public void onStartTrackingTouch(final SeekBar seekBar) {
+        }
+
+        @Override
+        public void onStopTrackingTouch(final SeekBar seekBar) {
+            // シークバーにタッチして値を変更した時はonProgressChangedへ
+            // 行かないみたいなのでここでも非表示までの時間を延長する
+            runOnUiThread(mSettingHideTask, SETTINGS_HIDE_DELAY_MS);
+            if (isActive() && checkSupportFlag(mSettingMode)) {
+                switch (mSettingMode) {
+                    case UVCCamera.PU_BRIGHTNESS:
+                    case UVCCamera.PU_CONTRAST:
+                        setValue(mSettingMode, seekBar.getProgress());
+                        break;
+                }
+            }	// if (active)
+        }
+    };
+
+    private final ViewAnimationHelper.ViewAnimationListener
+            mViewAnimationListener = new ViewAnimationHelper.ViewAnimationListener() {
+        @Override
+        public void onAnimationStart(@NonNull final Animator animator, @NonNull final View target, final int animationType) {
+//			if (DEBUG) Log.v(TAG, "onAnimationStart:");
+        }
+
+        @Override
+        public void onAnimationEnd(@NonNull final Animator animator, @NonNull final View target, final int animationType) {
+            final int id = target.getId();
+            switch (animationType) {
+                case ViewAnimationHelper.ANIMATION_FADE_IN:
+                case ViewAnimationHelper.ANIMATION_FADE_OUT:
+                {
+                    final boolean fadeIn = animationType == ViewAnimationHelper.ANIMATION_FADE_IN;
+                    if (id == R.id.value_layout) {
+                        if (fadeIn) {
+                            runOnUiThread(mSettingHideTask, SETTINGS_HIDE_DELAY_MS);
+                        } else {
+                            mValueLayout.setVisibility(View.GONE);
+                            mSettingMode = -1;
+                        }
+                    } else if (!fadeIn) {
+//					target.setVisibility(View.GONE);
+                    }
+                    break;
+                }
+            }
+        }
+
+        @Override
+        public void onAnimationCancel(@NonNull final Animator animator, @NonNull final View target, final int animationType) {
+//			if (DEBUG) Log.v(TAG, "onAnimationStart:");
+        }
+    };
+
+
+
+
+
     //================================================================================
+    // 根据给定的区域裁剪
+    private Bitmap cropBitmap(Bitmap bitmap, Rect rect) {
+        int x = rect.x;
+        int y = rect.y;
+        int cropWidth = rect.width;
+        int cropHeight = rect.height;
+        return Bitmap.createBitmap(bitmap, x, y, cropWidth, cropHeight, null, false);
+    }
+
+    // 根据给定的宽和高进行拉伸
+    private Bitmap scaleBitmap(Bitmap origin, int newWidth, int newHeight) {
+        if (origin == null) {
+            return null;
+        }
+        int height = origin.getHeight();
+        int width = origin.getWidth();
+        float scaleWidth = ((float) newWidth) / width;
+        float scaleHeight = ((float) newHeight) / height;
+        Matrix matrix = new Matrix();
+        matrix.postScale(scaleWidth, scaleHeight);// 使用后乘
+        Bitmap newBM = Bitmap.createBitmap(origin, 0, 0, width, height, matrix, false);
+        if (!origin.isRecycled()) {
+            origin.recycle();
+        }
+        return newBM;
+    }
+
+    // 提供（相对）精确的除法运算。当发生除不尽的情况时，由scale参数指
+    public double div(double v1, double v2, int scale) {
+        if (scale < 0) {
+            throw new IllegalArgumentException(
+                    "The scale must be a positive integer or zero");
+        }
+        BigDecimal b1 = new BigDecimal(Double.toString(v1));
+        BigDecimal b2 = new BigDecimal(Double.toString(v2));
+        return b1.divide(b2, scale, BigDecimal.ROUND_HALF_UP).doubleValue();
+    }
+
     // if you need frame data as byte array on Java side, you can use this callback method with UVCCamera#setFrameCallback
     // if you need to create Bitmap in IFrameCallback, please refer following snippet.
-    private final Bitmap bitmap = Bitmap.createBitmap(640, 480, Bitmap.Config.RGB_565);
+    private Bitmap bitmap = null;//Bitmap.createBitmap(640, 480, Bitmap.Config.RGB_565);
     private final Bitmap srcBitmap = Bitmap.createBitmap(PREVIEW_WIDTH, PREVIEW_HEIGHT, Bitmap.Config.RGB_565);
     private String WarnText;
 
@@ -408,19 +685,42 @@ public final class MainActivity extends BaseActivity implements CameraDialog.Cam
             if(!isActive() || isInCapturing){
                 return;
             }
+            if(bitmap == null){
+                Toast.makeText(MainActivity.this, "错误：Bitmap为空", Toast.LENGTH_SHORT).show();
+                return;
+            }
             synchronized (bitmap) {
                 srcBitmap.copyPixelsFromBuffer(frame);
-                Mat src = new Mat();
-                Utils.bitmapToMat(srcBitmap,src);
-
                 WarnText = "";
+
+                if(bitmap.getWidth() != mCaptureWidth || bitmap.getHeight() != mCaptureHeight){
+                    bitmap = Bitmap.createBitmap(mCaptureWidth, mCaptureHeight, Bitmap.Config.RGB_565);
+                }
+
                 if (!isScaling){
-                    // Todo 需要考虑通用情况
-                    int cutHeight = PREVIEW_WIDTH * CAPTURE_HEIGHT / CAPTURE_WIDTH;
-                    Rect cutRect = new Rect(0, (PREVIEW_HEIGHT-cutHeight)/2, PREVIEW_WIDTH, cutHeight);
-                    Imgproc.resize(src.submat(cutRect), src, new Size(CAPTURE_WIDTH, CAPTURE_HEIGHT));
+                    if(mCaptureWidth == PREVIEW_WIDTH && mCaptureHeight == PREVIEW_HEIGHT){
+                        bitmap = srcBitmap;
+                    }
+                    else{
+                        Rect cutRect = null;
+                        double pre_rate = div(PREVIEW_WIDTH, PREVIEW_HEIGHT, 2); // 1.25
+                        double cap_rate = div(mCaptureWidth, mCaptureHeight, 2); // 1.333
+                        if (pre_rate < cap_rate) {
+                            int cutHeight = PREVIEW_WIDTH * mCaptureHeight / mCaptureWidth;
+                            cutRect = new Rect(0, (PREVIEW_HEIGHT-cutHeight)/2, PREVIEW_WIDTH, cutHeight);
+                        }
+                        else{
+                            int cutWeight = PREVIEW_HEIGHT * mCaptureWidth / mCaptureHeight;
+                            cutRect = new Rect((PREVIEW_WIDTH-  cutWeight)/2, 0, cutWeight, PREVIEW_HEIGHT);
+                        }
+                        Bitmap cropBitmap = cropBitmap(srcBitmap,cutRect);
+                        bitmap = scaleBitmap(cropBitmap, mCaptureWidth, mCaptureHeight);
+                    }
                 }
                 else{
+                    Mat src = new Mat();
+                    Utils.bitmapToMat(srcBitmap,src);
+
                     int maxR = Math.min(PREVIEW_WIDTH, PREVIEW_HEIGHT);
                     // 1280x1024 --- 245*245
                     // 640x480 - 120 x 120
@@ -438,6 +738,7 @@ public final class MainActivity extends BaseActivity implements CameraDialog.Cam
 
                     boolean isDetectCircle = false;
                     Rect detectCircle = null;
+
                     for(int i=0;i<contours.size();i++){
                         MatOfPoint contour = contours.get(i);
                         double area = Imgproc.contourArea(contour);
@@ -452,10 +753,10 @@ public final class MainActivity extends BaseActivity implements CameraDialog.Cam
                             if(Math.abs(width - height) < 20){
                             	int circle_x = x+width/2;
     							int circle_y = y+height/2;
-    							int start_x = circle_x - 320 > 0 ? circle_x - 320 : 0;
-    							int start_y = circle_y - 240 > 0 ? circle_y - 240 : 0;
+    							int start_x = circle_x - mCaptureWidth/2 > 0 ? circle_x - mCaptureWidth/2 : 0;
+    							int start_y = circle_y - mCaptureHeight/2 > 0 ? circle_y - mCaptureHeight/2 : 0;
                                 isDetectCircle = true;
-                                detectCircle = new Rect(start_x, start_y, 640, 480);
+                                detectCircle = new Rect(start_x, start_y, mCaptureWidth, mCaptureHeight);
                                 break;
                             }
                             else{
@@ -487,24 +788,38 @@ public final class MainActivity extends BaseActivity implements CameraDialog.Cam
                                         int r = (int) c[2];
                                         //Log.d("zhf_Hough_Circle","x_c="+x_c +", y_c="+y_c+", r="+r);
                                         isDetectCircle = true;
-                                        detectCircle = new Rect(x_c+x-CAPTURE_WIDTH/2, y_c+y-CAPTURE_HEIGHT/2, CAPTURE_WIDTH, CAPTURE_HEIGHT);
+                                        detectCircle = new Rect(x_c+x-mCaptureWidth/2, y_c+y-mCaptureHeight/2, mCaptureWidth, mCaptureHeight);
                                     }
                                 }
                             }
                         }
                     }
 
+
                     if(!isDetectCircle) {
-                        WarnText = "未检测到圆，试着转动下镜头";
-                        Imgproc.resize(src, src, new Size(CAPTURE_WIDTH, CAPTURE_HEIGHT));
+                        WarnText = "未检测到圆，请试着转动下镜头";
+                        if(mCaptureWidth == PREVIEW_WIDTH && mCaptureHeight == PREVIEW_HEIGHT){
+                            bitmap = srcBitmap;
+                        }
+                        else{
+                            Rect cutRect = new Rect((PREVIEW_WIDTH-mCaptureWidth)/2,
+                                    (PREVIEW_HEIGHT-mCaptureHeight)/2,
+                                    mCaptureWidth, mCaptureHeight);
+                            bitmap =  cropBitmap(srcBitmap,cutRect);
+                        }
                     }
                     else{
-                        WarnText = "检测到圆, CircleRect="+detectCircle;
-                        src = src.submat(detectCircle);
+                        WarnText = "检测到圆, 圆心坐标：("+(detectCircle.x + detectCircle.width/2)+
+                                ", "+ (detectCircle.y + detectCircle.height/2)+")";
+                        if(mCaptureWidth == PREVIEW_WIDTH && mCaptureHeight == PREVIEW_HEIGHT){
+                            bitmap = srcBitmap;
+                        }
+                        else{
+                            bitmap =  cropBitmap(srcBitmap,detectCircle);
+                        }
                     }
                 }
-
-                Utils.matToBitmap(src,bitmap);
+                //Utils.matToBitmap(src,bitmap);
                 //=======================================
             }
             mImageView.post(mUpdateImageTask);
